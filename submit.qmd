@@ -1,28 +1,92 @@
 ---
-title: ""
-author: ""
+title: "Lab 9"
+author: "Allison Louie"
 format:
   html:
     embed-resources: true
 ---
-
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
-1 + 1
+library(tidyverse)
+library(microbenchmark)
+library(parallel)
+library(foreach)
+library(future)
+library(dplyr)
+library(matrixStats)
+```
+## Problem 1
+```{r}
+fun1 <- function(n = 100, k = 4, lambda = 4) {
+  x <- NULL
+  for (i in 1:n){
+    x <- rbind(x, rpois(k, lambda))    
+  }
+  return(x)
+}
+
+fun1alt <- function(n = 100, k = 4, lambda = 4) {
+  matrix(rpois(n * k, lambda), nrow = n, ncol = k)
+}
+
+set.seed(123)
+data1 <- fun1()
+data2 <- fun1alt(n = nrow(data1), k = ncol(data1), lambda = mean(data1))
+identical(dim(data1), dim(data2))
+
+microbenchmark::microbenchmark(
+  fun1(),
+  fun1alt()
+)
+```
+```{r}
+set.seed(1234)
+x <- matrix(rnorm(1e4), nrow=10)
+
+fun2 <- function(x) {
+  apply(x, 2, max)
+}
+fun2output <- fun2(x)
+fun2output[1:10]
+
+fun2alt <- function(x) {
+  colMaxs(x)
+}
+fun2altoutput <- fun2alt(x)
+fun2altoutput[1:10]
+
+identical(fun2output, fun2altoutput)
+microbenchmark::microbenchmark(
+  fun2 = fun2(x),
+  fun2alt = fun2alt(x)
+)
 ```
 
-You can add options to executable code like this
-
+## Problem 3
 ```{r}
-#| echo: false
-2 * 2
+my_boot_parallel <- function(dat, stat, R, ncpus = 1L) {
+  n <- nrow(dat)
+  idx <- matrix(sample.int(n, n*R, TRUE), nrow=n, ncol=R)
+  ans <- parallel::mclapply(seq_len(R), function(i) {
+    stat(dat[idx[, i], , drop = FALSE])
+  }, mc.cores = ncpus)
+  ans <- do.call(rbind, ans)
+  return(ans)
+}
+
+my_stat <- function(d) coef(lm(y ~ x, data=d))
+
+set.seed(1)
+n <- 500; R <- 1e4
+x <- cbind(rnorm(n)); y <- x*5 + rnorm(n)
+
+ans0 <- confint(lm(y~x))
+ans1 <- my_boot_parallel(dat = data.frame(x, y), my_stat, R = R, ncpus = 2L)
+
+t(apply(ans1, 2, quantile, c(.025,.975)))
+ans0
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+```{r}
+system.time(my_boot_parallel(dat = data.frame(x, y), my_stat, R = 4000, ncpus = 1L))
+system.time(my_boot_parallel(dat = data.frame(x, y), my_stat, R = 4000, ncpus = 2L))
+```
